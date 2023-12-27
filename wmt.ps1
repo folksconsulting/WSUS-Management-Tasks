@@ -7,7 +7,7 @@
   Description:
   Automate WSUS management such as deny updates by keywords such as x86, cleanup the WSUS server, and clean up the synchronization history using Task Scheduler.
   Usage:
-  Task Scheduler via a scheduled task that runs based on your interval selection (weekly, monthly, quarterly)
+  Task Scheduler via a scheduled task on your WSUS server that runs based on your interval selection (weekly, monthly, quarterly)
   -OR-
   PS> .\wmt.ps1
   GitHub:
@@ -265,7 +265,6 @@ class WMT {
 
 # Initiate WMT class
 $WMT = [WMT]::new($logger, $wsusServer, $wsusPort)
-
 
 # Start of script message
 $startScriptTime = $timeControl.GetTimestamp()
