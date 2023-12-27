@@ -15,11 +15,11 @@
 #>
 
 # Define Program Variables
-$logFilePath = "C:\fcdata\logs\wmt\" # Logfile path
+$logFilePath = "C:\logs\wmt\" # Logfile path
 $logFileName = "WMTLogFile.txt" # Logfile name
 $maxLogFileSize = 5MB # Set the max size of the logfile. If invalid integer, null, or greater than 10MB, the value is set to the default 10MB
 $daysToKeepLogs = 7  # Define the number of days to keep logs. If invalid integer or null, the default value of 7 days will be kept
-$wsusServer = "fcnet-svc1" # WSUS server hostname
+$wsusServer = "wsus_hostname" # WSUS server hostname
 $wsusPort = 8530 # WSUS port (default ports: http = 8530 or https = 8531)
 # $wsusDatabase = "wsus_database_name_here" # WSUS database name (default SUSDB)
 # $daysToKeepSyncHistory = 7 # Number of days to keep sync history
