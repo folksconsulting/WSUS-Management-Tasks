@@ -1,11 +1,7 @@
 # WSUS Management Tasks
 PowerShell script that handles automating WSUS management and optimization tasks.
 ## Project Goals
-- Generate log file.
-- Calculate time difference between steps.
 - Decline updates that are not needed.
-- Perform clean up tasks
+  Still working on a way to better define what to decline vs just the current configuration of x86 and ARM64
 - Clear synchronizations reports - keeping a set number of days with a default predetermined.
-
-## More to follow...
-Working on cleaning up initial version for public release...
+  Working on a way to determine SQL vs WID databases and make the connection as needed to clean the table that stores the sync records.
