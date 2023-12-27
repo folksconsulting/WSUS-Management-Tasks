@@ -15,12 +15,12 @@
 #>
 
 # Define Program Variables
-$logFilePath = "C:\logs\wmt\" # Logfile path
+$logFilePath = "C:\fcdata\logs\wmt\" # Logfile path
 $logFileName = "WMTLogFile.txt" # Logfile name
 $maxLogFileSize = 5MB # Set the max size of the logfile. If invalid integer, null, or greater than 10MB, the value is set to the default 10MB
 $daysToKeepLogs = 7  # Define the number of days to keep logs. If invalid integer or null, the default value of 7 days will be kept
-$wsusServer = "server_name_here" # WSUS server hostname
-$wsusPort = "wsus_port_here" # WSUS port (default ports: http = 8530 or https = 8531)
+$wsusServer = "fcnet-svc1" # WSUS server hostname
+$wsusPort = 8530 # WSUS port (default ports: http = 8530 or https = 8531)
 # $wsusDatabase = "wsus_database_name_here" # WSUS database name (default SUSDB)
 # $daysToKeepSyncHistory = 7 # Number of days to keep sync history
 ###
@@ -89,7 +89,6 @@ class Logger {
         if ((Test-Path -Path $this.logFile) -and ((Get-Item $this.logFile).length -ge $this.maxLogFileSize)) {
             $timestamp = (Get-Date).ToString("yyyyMMddHHmmss")
             $newFileName = "{0}_{1}" -f $this.logFileName, $timestamp
-
             Rename-Item -Path $this.logFile -NewName $newFileName
             New-Item -Path $this.logFilePath -ItemType File -Name $this.logFileName | Out-Null
         }
@@ -103,6 +102,7 @@ class Logger {
         foreach ($file in $logFiles) {
             if ($file.Name -ne $this.logFileName) {
                 Remove-Item -Path $file.FullName -Force
+                $this.logger.LogToLogFile("Log File Removed:"+$file.FullName)
             }
         }
     }
@@ -176,13 +176,15 @@ class TimeControl {
 # Initiate time control class
 $timeControl = [TimeControl]::new($logger)
 
+# Import the UpdateServices module
+Import-Module -Name UpdateServices -ErrorAction Stop
 # Class for WSUS Management Tasks
 class WMT {
     [Logger]$logger
     [string]$wsusServer
-    [string]$wsusPort
+    [int]$wsusPort
 
-    WMT([Logger]$logger, [string]$wsusServer, [string]$wsusPort) {
+    WMT([Logger]$logger, [string]$wsusServer, [int]$wsusPort) {
         $this.logger = $logger
         $this.wsusServer = $wsusServer
         $this.wsusPort = $wsusPort
@@ -190,7 +192,7 @@ class WMT {
 
     [void] TestWSUSConnection() {
         try {
-            Import-Module -Name UpdateServices -ErrorAction Stop
+            $this.logger.LogToLogFile("Starting WSUS Connection Test")
             $wsusConfig = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer($this.wsusServer, $false, $this.wsusPort)
 
             if ($null -ne $wsusConfig) {
@@ -200,6 +202,7 @@ class WMT {
                 $connectionStatus = "Failed to connect to WSUS server."
                 $this.logger.LogToLogFile($connectionStatus)
             }
+            $this.logger.LogToLogFile("Completed WSUS Connection Test")
         } catch {
             $errorMessage = "Error occurred while testing WSUS connection: $_"
             $this.logger.LogToLogFile($errorMessage)
@@ -208,7 +211,7 @@ class WMT {
 
     [void] DeclineUpdates() {
         try {
-            Import-Module -Name UpdateServices -ErrorAction Stop
+            $this.logger.LogToLogFile("Starting Decline Update Process")
             $wsusConfig = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer($this.wsusServer, $false, $this.wsusPort)
             $updates = $wsusConfig.GetUpdates()
 
@@ -218,13 +221,44 @@ class WMT {
 
                 if ($title -like "*x86*" -or $title -like "*ARM64*" -and !$isDeclined) {
                     $declinedUpdateInfo = "Declining update: $($update.Title)"
-                    $declinedUpdateInfo | Out-File -FilePath $this.logFilePath -Append
+                    $this.logger.LogMessage($declinedUpdateInfo)
                     $update.Decline()
                 }
             }
+            $this.logger.LogToLogFile("Completed Decline Update Process")
         } catch {
             $errorMessage = "Error occurred while declining updates: $_"
-            $errorMessage | Out-File -FilePath $this.logFilePath -Append
+            $this.logger.LogToLogFile($errorMessage)
+        }
+    }
+
+    [void] PerformCleanup() {
+        try {
+            $wsusConfig = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer($this.wsusServer, $false, $this.wsusPort)
+
+            # Define cleanupScope
+            $cleanupScope = New-Object Microsoft.UpdateServices.Administration.CleanupScope
+            $cleanupScope.DeclineSupersededUpdates = $true
+            $cleanupScope.DeclineExpiredUpdates = $true
+            $cleanupScope.CleanupObsoleteUpdates = $true
+            $cleanupScope.CleanupObsoleteComputers = $true
+            $cleanupScope.CleanupUnneededContentFiles = $true
+            $cleanupScope.CompressUpdates = $true
+            
+            $cleanupManager = $wsusConfig.GetCleanupManager()
+            $cleanupResults = $cleanupManager.PerformCleanup($cleanupScope)
+
+            # Log cleanup results
+            $cleanupResultsMessage =  "Cleanup Results:`n"
+            $cleanupResultsMessage += "Declined Updates: $($cleanupResults.DeclinedUpdatesCount)`n"
+            $cleanupResultsMessage += "Deleted Updates: $($cleanupResults.DeletedUpdatesCount)`n"
+            $cleanupResultsMessage += "Computers Removed: $($cleanupResults.ComputersRemovedCount)`n"
+            $cleanupResultsMessage += "Content Files Removed: $($cleanupResults.ContentFilesRemovedCount)`n"
+
+            $this.logger.LogMessage($cleanupResultsMessage)
+        } catch {
+            $errorMessage = "Error occurred while performing cleanup: $_"
+            $this.logger.LogToLogFile($errorMessage)
         }
     }
 }
@@ -235,22 +269,33 @@ $WMT = [WMT]::new($logger, $wsusServer, $wsusPort)
 
 # Start of script message
 $startScriptTime = $timeControl.GetTimestamp()
-$logger.LogMessage("=====================================================
- WSUS Management Tasks Started - $startScriptTime
-=====================================================
-")
+$logger.LogMessage("=====================================================`n WSUS Management Tasks Started - $startScriptTime`n=====================================================`n")
 
 ### Script Body Start
 
+$logger.LogMessage("Test WSUS Connection:`n")
 $WMT.TestWSUSConnection()
+$logger.LogMessage("`n=====================================================`n")
+
+$logger.LogMessage("Decline Update Process:`n")
+$startDeclineUpdates = $timeControl.GetTimestamp()
+$WMT.DeclineUpdates()
+$endDeclineUpdates = $timeControl.GetTimestamp()
+$logger.LogToLogFile("Decline Updates:")
+$timeControl.CalculateTimeDifference($startDeclineUpdates, $endDeclineUpdates)
+$logger.LogMessage("`n=====================================================`n")
+
+$logger.LogMessage("Perform WSUS Cleanup:`n")
+$startPerformCleanup = $timeControl.GetTimestamp()
+$WMT.PerformCleanup()
+$endPerformCleanup = $timeControl.GetTimestamp()
+$timeControl.CalculateTimeDifference($startPerformCleanup, $endPerformCleanup)
+$logger.LogMessage("`n=====================================================`n")
 
 ### Script Body End
 
 # End of script message
 $endScriptTime = $timeControl.GetTimestamp()
+$logger.LogMessage("Script Completion Time:")
 $timeControl.CalculateTimeDifference($startScriptTime, $endScriptTime)
-$logger.LogMessage("
-=======================================================
- WSUS Management Tasks Completed - $endScriptTime
-=======================================================
-")
+$logger.LogMessage("=======================================================`n WSUS Management Tasks Completed - $endScriptTime`n=======================================================`n")
